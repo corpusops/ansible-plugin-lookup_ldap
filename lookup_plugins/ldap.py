@@ -26,6 +26,7 @@ from ansible.template import Templar
 import base64
 import ldap
 import ldap.sasl
+import sys
 import threading
 
 default_context = 'ldap_lookup_config'
@@ -70,6 +71,8 @@ def fill_context(ctx, inject, **kwargs):
 
 def encode(p, v):
     e = p.get('encoding', None)
+    if sys.version_info[0] > 2:
+        e = e or 'utf-8'
     if e == 'binary':
         v = base64.b64encode(v)
     elif e is not None:
@@ -142,7 +145,7 @@ class LookupModule(LookupBase):
 
         try:
             ctx = self.render_template(variables, ctx)
-        except Exception, e:
+        except (Exception,) as e:
             raise errors.AnsibleError(
                 'exception while preparing LDAP parameters: %s' % e)
         self._display.vv("LDAP config: %s" % hide_pw(ctx))
@@ -182,6 +185,12 @@ class LookupModule(LookupBase):
                 and key_attr not in base_args['attrlist']:
             base_args['attrlist'].append(key_attr.encode('ASCII'))
 
+        if sys.version_info[0] > 2:
+            try:
+                base_args['attrlist'] = [a.decode('ASCII') for a in base_args['attrlist']]
+            except KeyError:
+                pass
+
         # Connect and bind
         with LookupModule.__ldap_library_lock:
             LookupModule.set_ldap_library_options(ctx)
@@ -196,7 +205,10 @@ class LookupModule(LookupBase):
                 # bindpw may be an AnsibleVaultEncryptedUnicode, which ldap doesn't
                 # know anything about, so cast to unicode explicitly now.
 
-                lo.simple_bind_s(ctx.get('binddn', ''), unicode(ctx.get('bindpw', '')))
+                pw = ctx.get('bindpw', '')
+                if sys.version_info[0] <= 2:
+                    pw = unicode(pw)
+                lo.simple_bind_s(ctx.get('binddn', ''), pw)
 
         ret = []
 
